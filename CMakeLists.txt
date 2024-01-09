@@ -1,206 +1,143 @@
-# Defines the CMake commands/policies
-cmake_minimum_required(VERSION 3.0.0)
+set(PYNE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}" ${PYNE_INCLUDE_DIRS}
+    PARENT_SCOPE)
 
-if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.12.0")
-  cmake_policy(SET CMP0074 NEW)
-endif()
-# Make the scripts available in the 'cmake' directory available for the
-# 'include()' command, 'find_package()' command.
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+execute_process(COMMAND python "${CMAKE_CURRENT_LIST_DIR}/../pyne/pyne_version.py" WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Setup the project
-project(pyne)
+pyne_download_platform()
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
 
-# check for and enable c++11 support
-INCLUDE(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
-IF(COMPILER_SUPPORTS_CXX11)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-ELSE()
-    MESSAGE(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
+# setup source files
+set(PYNE_SRCS
+  "atomic_data.cpp"
+  "data.cpp"
+  "enrichment.cpp"
+  "enrichment_cascade.cpp"
+  "enrichment_symbolic.cpp"
+  "jsoncpp.cpp"
+  "jsoncustomwriter.cpp"
+  "material.cpp"
+  "material_library.cpp"
+  "nucname.cpp"
+  "particle.cpp"
+  "source.cpp"
+  "rxname.cpp"
+  "tally.cpp"
+  "transmuters.cpp"
+  "utils.cpp"
+  "endftod.f90"
+  )
+set(TRANSPORT_SPATIAL_METHODS_SRCS
+  "transport_spatial_methods/3d/ahotn_kernel_module.f90"
+  "transport_spatial_methods/3d/angle.f90"
+  "transport_spatial_methods/3d/check.f90"
+  "transport_spatial_methods/3d/dgfem_kernel.f90"
+  "transport_spatial_methods/3d/echo.f90"
+  "transport_spatial_methods/3d/geompack.f90"
+  "transport_spatial_methods/3d/igeompack.f90"
+  "transport_spatial_methods/3d/inner.f90"
+  "transport_spatial_methods/3d/invar.f90"
+  "transport_spatial_methods/3d/output.f90"
+  "transport_spatial_methods/3d/output_phi.f90"
+  "transport_spatial_methods/3d/p.f90"
+  "transport_spatial_methods/3d/precision_module.f90"
+  "transport_spatial_methods/3d/read_inflow_ahotn.f90"
+  "transport_spatial_methods/3d/read_inflow_dgfem.f90"
+  "transport_spatial_methods/3d/read_inflow_sct_step.f90"
+  "transport_spatial_methods/3d/readsrc.f90"
+  "transport_spatial_methods/3d/readxs.f90"
+  "transport_spatial_methods/3d/sct_module.f90"
+  "transport_spatial_methods/3d/sct_step_kernel_module.f90"
+  "transport_spatial_methods/3d/solvar.f90"
+  "transport_spatial_methods/3d/solve.f90"
+  "transport_spatial_methods/3d/sweep_ahotn_l.f90"
+  "transport_spatial_methods/3d/sweep_ahotn_nefd.f90"
+  "transport_spatial_methods/3d/sweep_dgfem.f90"
+  "transport_spatial_methods/3d/sweep_sct_step.f90"
+  "transport_spatial_methods/3d/timevar.f90"
+  "transport_spatial_methods/3d/trackroutines.f90"
+  "transport_spatial_methods/3d/trackstruct.f90"
+  "transport_spatial_methods/3d/version.f90"
+  #"transport_spatial_methods/3d/main.f90"
+  )
+set(MOAB_SRCS
+    "measure.cpp"
+    "source_sampling.cpp"
+    )
+
+
+#check operating system
+IF(NOT ${PYNE_PLATFORM} STREQUAL "__LINUX__")
+  set(BUILD_SPATIAL_SOLVER false)
 ENDIF()
 
-option ( ENABLE_SPATIAL_SOLVERS     "Should build AHOT spatial solvers?"                 OFF )
-option ( ENABLE_ENSDF_PROCESSIONG   "Should build ENSDF processing tools?"               OFF )
-
-include(PyneMacros)
-pyne_print_logo()  # Beware of dragons
-pyne_set_platform()
-pyne_setup_cxx()
-pyne_set_asm_platform()
-pyne_set_build_spatial_solver()
-pyne_set_build_type()
-pyne_set_fast_compile()
-pyne_configure_rpath()
-
-# enable assembly
-enable_language(ASM)
-
-# This makes all the libraries build as SHARED
-set(BUILD_SHARED_LIBS true)
-message("-- CMake Install Prefix: ${CMAKE_INSTALL_PREFIX}")
-
-
-#
-# Allow for dependnecies to exist in non-install location
-#
-if (NOT DEPS_ROOT_DIR)
-  get_filename_component(compdir ${CMAKE_CXX_COMPILER} DIRECTORY)
-  get_filename_component(DEPS_ROOT_DIR ${compdir} DIRECTORY)
-endif (NOT DEPS_ROOT_DIR)
-SET(DEPS_HINTS HINTS "${DEPS_ROOT_DIR}")
-SET(DEPS_BIN_HINTS ${DEPS_HINTS} "${DEPS_ROOT_DIR}/bin")
-SET(DEPS_LIB_HINTS ${DEPS_HINTS} "${DEPS_ROOT_DIR}/lib")
-SET(DEPS_INCLUDE_HINTS HINTS "${DEPS_ROOT_DIR}/include")
-MESSAGE("-- Dependency Root Dir (DEPS_ROOT_DIR): ${DEPS_ROOT_DIR}")
-MESSAGE("-- Dependency Hints (DEPS_HINTS): ${DEPS_HINTS}")
-MESSAGE("-- Dependency Binary Hints (DEPS_BIN_HINTS): ${DEPS_BIN_HINTS}")
-MESSAGE("-- Dependency Library Hints (DEPS_LIB_HINTS): ${DEPS_LIB_HINTS}")
-MESSAGE("-- Dependency Include Hints (DEPS_INCLUDE_HINTS): ${DEPS_INCLUDE_HINTS}")
-
-
-#
-# Find Libraries
-#
-
-# Find HDF5
-MESSAGE("-- HDF5 Root: ${HDF5_ROOT}")
-if(HDF5_ROOT)
-  FIND_PACKAGE(HDF5 REQUIRED)
-else()
-  FIND_PACKAGE(HDF5)
-endif()
-if(NOT HDF5_FOUND AND NOT HDF5_ROOT)
-  MESSAGE("--    HDF5 not found on empty HDF5_ROOT, "
-          "setting to DEPS_ROOT_DIR: ${DEPS_ROOT_DIR}")
-  set(HDF5_ROOT "${DEPS_ROOT_DIR}")
-  FIND_PACKAGE(HDF5 REQUIRED)
-endif()
-ADD_DEFINITIONS(${HDF5_DEFINITIONS})
-include_directories("${HDF5_INCLUDE_DIRS}")
-if(NOT HDF5_LIBRARY_DIRS STREQUAL "")
-  link_directories(${HDF5_LIBRARY_DIRS})
-endif()
-set(LIBS_HDF5 ${HDF5_C_LIBRARIES})
-set(LIBS ${LIBS} ${HDF5_C_LIBRARIES})
-MESSAGE("--    HDF5 Include directory: ${HDF5_INCLUDE_DIRS}")
-MESSAGE("--    HDF5 Library directories: ${HDF5_LIBRARY_DIRS}")
-MESSAGE("--    HDF5 Libraries: ${HDF5_C_LIBRARIES}")
-MESSAGE("--    HDF5 library version: ${HDF5_VERSION}")
-
-# Version 1.12 of HDF5 deprecates the H5Oget_info_by_idx(),
-# H5O_info_t() and H5Oget_info_by_name() interfaces.
-# Thus, we give these flags to allow usage of the old interface in newer
-# versions of HDF5.
-if(NOT (${HDF5_VERSION} VERSION_LESS 1.12.0))
-   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DH5Oget_info_by_idx_vers=1 -DH5O_info_t_vers=1 -DH5Oget_info_by_name_vers=1")
-endif()
-
-# Look for MOAB if requested
-if(WITH_MOAB)
-  # user may have set a search path
-  if(NOT MOAB_ROOT)
-    set(MOAB_ROOT "${DEPS_ROOT_DIR}")
-  endif()
-  MESSAGE("-- MOAB Root: ${MOAB_ROOT}")
-  find_package(MOAB)
-  message("-- MOAB Found: ${MOAB_FOUND}")
-  if(${MOAB_FOUND})
-    include_directories(${MOAB_INCLUDE_DIRS})
-    get_filename_component(MOAB_LIBRARY_DIRS ${MOAB_LIBRARY} PATH)
-    if(APPLE)
-      link_directories(${MOAB_LIBRARY_DIRS})
-    else(APPLE)
-      link_directories(${MOAB_LIBRARY_DIRS})
-    endif(APPLE)
-  endif(${MOAB_FOUND})
-endif()
-
-# Look for DAGMC if requested
-if(WITH_DAGMC)
-  if(${MOAB_FOUND})
-    # Always look for DAGMC library
-    if(NOT DAGMC_ROOT)
-      set(DAGMC_ROOT "${DEPS_ROOT_DIR}")
-    endif()
-    MESSAGE("-- DAGMC Root: ${DAGMC_ROOT}")
-    find_package(DAGMC)
-    message("-- DAGMC Found: ${DAGMC_FOUND}")
-    if(${DAGMC_FOUND})
-      include_directories(${DAGMC_INCLUDE_DIRS})
-      link_directories(${DAGMC_LIBRARY_DIRS})
-    endif(${DAGMC_FOUND})
-  else(${MOAB_FOUND})
-    message("-- DAGMC: Not searching because MOAB was not found.")
-  endif(${MOAB_FOUND})
-endif()
-
-# Find Python
-find_package(PythonInterp REQUIRED)
-find_package(PythonLibs REQUIRED)
-if(PYTHON_VERSION_MAJOR EQUAL 2)
-  set(SITE_PACKAGES_CODE
-      "import site; print site.getusersitepackages().replace(site.USER_BASE, '${CMAKE_INSTALL_PREFIX}', 1)")
-else(PYTHON_VERSION_MAJOR EQUAL 2)
-  set(SITE_PACKAGES_CODE
-      "import site; print(site.getsitepackages(['${CMAKE_INSTALL_PREFIX}'])[0])")
-endif(PYTHON_VERSION_MAJOR EQUAL 2)
-execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c "${SITE_PACKAGES_CODE}"
-                OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
-                OUTPUT_STRIP_TRAILING_WHITESPACE)
-set(LIBS ${LIBS} ${PYTHON_LIBRARIES})
-message("-- PYTHON_EXECUTABLE: ${PYTHON_EXECUTABLE}")
-message("-- PYTHON_SITE_PACKAGES: ${PYTHON_SITE_PACKAGES}")
-
-
-# Find NumPy
-find_package(Numpy REQUIRED)
-include_directories("${NUMPY_INCLUDE_DIR}")
-
-
-pyne_setup_fortran()
-
-# Find f2py, if building spatial solver
+# setup source files
 IF(BUILD_SPATIAL_SOLVER)
-  find_package(F2py REQUIRED)
-  message("-- F2PY Executable: ${F2PY_EXECUTABLE}")
-  message("-- F2PY Version: ${F2PY_VERSION}")
+  set(PYNE_SRCS "${PYNE_SRCS}" "${TRANSPORT_SPATIAL_METHODS_SRCS}")
+ENDIF()
 
-  FIND_PACKAGE(LAPACK REQUIRED)
-  MESSAGE("-- Found LAPACK Linker Flags: ${LAPACK_LINKER_FLAGS}")
-  MESSAGE("-- Found LAPACK Libraries: ${LAPACK_LIBRARIES}")
-  MESSAGE("-- Found BLAS Libraries: ${BLAS_LIBRARIES}")
+if(MOAB_FOUND)
+  set(PYNE_SRCS "${PYNE_SRCS}" "${MOAB_SRCS}")
+endif(MOAB_FOUND)
+
+# Fast compile decay and cram
+fast_compile(decay.cpp "-O0" "-O0" "-O0")
+fast_compile(cram.c
+  "-O0 -fcx-fortran-rules -fcx-limited-range -ftree-sra -ftree-ter -fexpensive-optimizations"
+  "-O0 -ffast-math"
+  "-O0")
+
+# compile and link library
+add_library(pyne ${PYNE_SRCS})
+if("${LIBS_HDF5}" STREQUAL "")
+  target_link_libraries(pyne hdf5)
+else()
+  target_link_libraries(pyne ${LIBS_HDF5})
+endif()
+IF(BUILD_SPATIAL_SOLVER)
+    target_link_libraries(pyne ${LIBS_HDF5} ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 ENDIF(BUILD_SPATIAL_SOLVER)
+if(MOAB_FOUND)
+    target_link_libraries(pyne MOAB)
+endif(MOAB_FOUND)
+if(DAGMC_FOUND)
+    target_link_libraries(pyne dagmc MOAB)
+endif(DAGMC_FOUND)
 
+if(ENABLE_ENSDF_PROCESSIONG)
+  add_executable(alphad ${PROJECT_SOURCE_DIR}/src/ensdf_processing/ALPHAD/alphad.f
+                        ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(delta ${PROJECT_SOURCE_DIR}/src/ensdf_processing/DELTA/delta.for)
+  add_executable(gtol ${PROJECT_SOURCE_DIR}/src/ensdf_processing/GTOL/gtol.f
+                      ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(bldhst ${PROJECT_SOURCE_DIR}/src/ensdf_processing/HSICC/bldhst.for)
+  add_executable(hsicc ${PROJECT_SOURCE_DIR}/src/ensdf_processing/HSICC/hsicc.for
+                       ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(hsmrg ${PROJECT_SOURCE_DIR}/src/ensdf_processing/HSICC/hsmrg.for
+                       ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(seqhst ${PROJECT_SOURCE_DIR}/src/ensdf_processing/HSICC/seqhst.for
+                        ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(logft ${PROJECT_SOURCE_DIR}/src/ensdf_processing/LOGFT/logft.for
+                       ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+  add_executable(radd ${PROJECT_SOURCE_DIR}/src/ensdf_processing/RADD/RadD.for)
+  add_executable(ruler ${PROJECT_SOURCE_DIR}/src/ensdf_processing/RULER/ruler.f
+                       ${PROJECT_SOURCE_DIR}/src/ensdf_processing/nsdflib95.f)
+endif(ENABLE_ENSDF_PROCESSIONG)
 
-# Include the CMake script UseCython.cmake.  This defines add_cython_module().
-# Instruction for use can be found at the top of cmake/UseCython.cmake.
-include(UseCython)
-INCLUDE_DIRECTORIES("${CMAKE_CURRENT_BINARY_DIR}/pyne")
+# Print include dir
+get_property(inc_dirs DIRECTORY PROPERTY INCLUDE_DIRECTORIES)
+message("-- Include paths for ${CMAKE_CURRENT_SOURCE_DIR}: ${inc_dirs}")
 
-# Add JsonCpp Flag
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DJSON_IS_AMALGAMATION")
 
 #
-# Build and install!
+# Install header files
 #
-message(STATUS "LIBS: ${LIBS}")
-# With CMake, a clean separation can be made between the source tree and the
-# build tree.  When all source is compiled, as with pure C/C++, the source is
-# no-longer needed in the build tree.  However, with pure *.py source, the
-# source is processed directly.  To handle this, we reproduce the availability
-# of the source files in the build tree.
-add_custom_target(ReplicatePythonSourceTree ALL "${CMAKE_COMMAND}" -P
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReplicatePythonSourceTree.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}"
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+FILE(GLOB h_files "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+FILE(GLOB hpp_files "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp")
+SET(h_files ${h_files} ${hpp_files})
+INSTALL(FILES ${h_files} DESTINATION include/pyne COMPONENT headers)
 
-# add sub dirs
-add_subdirectory(src)
-add_subdirectory(pyne)
-add_subdirectory(pyne/xs)
 
-# install python package
-set(pyinstallscript "${CMAKE_CURRENT_BINARY_DIR}/cmake/SetupSubPyInstall.cmake")
-configure_file(cmake/SetupSubPyInstall.cmake.in ${pyinstallscript} @ONLY)
-install(SCRIPT ${pyinstallscript})
+#
+# Install libpyne
+#
+INSTALL(TARGETS pyne LIBRARY DESTINATION lib COMPONENT pyne)
